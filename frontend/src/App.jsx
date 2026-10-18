@@ -1,120 +1,108 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import L from 'leaflet'
+import { GeoJSON, MapContainer, TileLayer } from 'react-leaflet'
+import 'leaflet/dist/leaflet.css'
 import './App.css'
 
-function App() {
-  const [measurements, setMeasurements] = useState([])
-  const [name, setName] = useState('')
-  const [type, setType] = useState('Pressure')
-  const [unit, setUnit] = useState('bar')
+// Keep the API host aligned with the host used to open the frontend. This is
+// important for session cookies: localhost and 127.0.0.1 are different hosts.
+const API = import.meta.env.VITE_API_URL || `${window.location.protocol}//${window.location.hostname}:8000`
+const areas = [
+  ['Dashboard','◫'],['Measurements','⌁'],['Physical Devices','▣'],['Network Elements','⌖'],['GIS Map','◎'],['Controlled Lists','☷'],['Excel Import/Export','⇅'],['Administration','♙'],['Settings','⚙'],
+]
+const resources = {
+  Measurements: {path:'measurements', id:'measurement_id', name:'measurement_name', fields:[['measurement_id','Measurement ID','text',true],['measurement_name','Measurement name','text',true],['measurement_collection_batch','Collection batch','number'],['measurement_type_id','Measurement type','measurement_types',true],['measurement_unit_id','Measurement unit','measurement_units',true],['meter_account','Meter account','text'],['customer_account','Customer account','text'],['details','Details','textarea'],['network_element_id','Network element','network-elements',true],['physical_device_id','Physical device','physical-devices',true],['collection_type','Data collection type','text'],['collection_parameters','Collection parameters (JSON)','json']]},
+  'Physical Devices': {path:'physical-devices', id:'device_id', name:'device_name', fields:[['device_id','Device ID','text',true],['device_name','Device name','text',true],['device_type_id','Device type','device_types',true],['parent_device_id','Parent device','physical-devices'],['communication_parameters','Communication parameters (JSON)','json'],['longitude','Longitude','number'],['latitude','Latitude','number'],['manufacturer','Manufacturer','text'],['model','Model','text'],['serial_number','Serial number','text'],['installation_date','Installation date','date']]},
+  'Network Elements': {path:'network-elements', id:'network_element_id', name:'network_element_name', fields:[['network_element_id','Network element ID','text',true],['network_element_name','Network element name','text',true],['network_element_type_id','Element type','network_element_types',true],['network_area','Network area','text'],['latitude','Latitude','number'],['longitude','Longitude','number'],['elevation','Elevation','number'],['strategic_id','Strategic ID','text'],['dma_id','DMA ID','text'],['address','Address','textarea'],['network_element_code','Network element code','text'],['district','District','text'],['geometry','Geometry GeoJSON (optional)','json']]},
+}
+const measurementDetailFields=['Department','MeasurementId','MeasurementName','MeasurementCollectionBatch','MeasurementType','Meter Account','Customer Account','MeasurementUnit','Details','NetworkElementId','NetworkElementName','NetworkElementType','NetworkArea','Latitude','Longitude','Elevation','StrategicId','DMAId','PhysicalDeviceId','SensorStationName','SensorStationType','DataCollectionType','DataCollectionParameters']
+const listNames = {measurement_types:'Measurement Types',measurement_units:'Measurement Units',device_types:'Device Types',network_element_types:'Network Element Types'}
 
-  // Get measurements from FastAPI when the page loads
-  useEffect(() => {
-    fetch('http://127.0.0.1:8000/measurements')
-      .then(response => response.json())
-      .then(data => setMeasurements(data))
-  }, [])
-
-  // Send a new measurement to FastAPI
-  const addMeasurement = async (event) => {
-    event.preventDefault()
-
-    const response = await fetch(
-      'http://127.0.0.1:8000/measurements',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          name: name,
-          type: type,
-          unit: unit,
-        }),
-      }
-    )
-
-    const newMeasurement = await response.json()
-
-    setMeasurements([...measurements, newMeasurement])
-
-    setName('')
+function GeoMap({features}) {
+  const collection=useMemo(()=>({type:'FeatureCollection',features}),[features])
+  const style=(feature)=>({color:feature.properties?.kind==='physical_device'?'#22a591':'#477fbd',weight:4,fillColor:'#45b8aa',fillOpacity:.42})
+  const pointToLayer=(feature,latlng)=>L.circleMarker(latlng,{radius:7,weight:2,color:feature.properties?.kind==='physical_device'?'#138e82':'#326fac',fillColor:feature.properties?.kind==='physical_device'?'#3dc3ae':'#63a4e8',fillOpacity:.9})
+  const onEachFeature=(feature,layer)=>{
+    const escape=(value)=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]))
+    layer.bindPopup(`<strong>${escape(feature.properties?.name)}</strong><br/>${escape(feature.properties?.external_id)}<br/><small>${escape(feature.properties?.kind?.replace('_',' '))}</small>`)
   }
-
-  return (
-    <div className="app">
-      <h1>Sensor Metadata Management Platform</h1>
-
-      <h2>Add Measurement</h2>
-
-      <form onSubmit={addMeasurement}>
-        <div>
-          <label>Measurement Name</label>
-
-          <input
-            type="text"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder="e.g. Pressure Sensor 01"
-            required
-          />
-        </div>
-
-        <div>
-          <label>Measurement Type</label>
-
-          <select
-            value={type}
-            onChange={(event) => setType(event.target.value)}
-          >
-            <option>Pressure</option>
-            <option>Flow</option>
-            <option>Temperature</option>
-            <option>Level</option>
-          </select>
-        </div>
-
-        <div>
-          <label>Measurement Unit</label>
-
-          <select
-            value={unit}
-            onChange={(event) => setUnit(event.target.value)}
-          >
-            <option>bar</option>
-            <option>L/s</option>
-            <option>°C</option>
-            <option>m</option>
-          </select>
-        </div>
-
-        <button type="submit">
-          Add Measurement
-        </button>
-      </form>
-
-      <h2>Measurements</h2>
-
-      <table>
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Type</th>
-            <th>Unit</th>
-          </tr>
-        </thead>
-
-        <tbody>
-          {measurements.map((measurement, index) => (
-            <tr key={index}>
-              <td>{measurement.name}</td>
-              <td>{measurement.type}</td>
-              <td>{measurement.unit}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
+  return <MapContainer center={[35.13,33.4]} zoom={9} scrollWheelZoom className="real-map"><TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"/><GeoJSON data={collection} style={style} pointToLayer={pointToLayer} onEachFeature={onEachFeature}/></MapContainer>
+}
+function Bars({title,items=[]}) {
+  const max=Math.max(1,...items.map(item=>item.count))
+  return <section className="panel chart-panel"><h2>{title}</h2>{items.length?items.slice(0,7).map(item=><div className="bar-row" key={item.label}><span title={item.label}>{item.label}</span><div><i style={{width:`${Math.max(4,item.count/max*100)}%`}}/></div><b>{item.count}</b></div>):<p className="muted">No records yet</p>}</section>
 }
 
+function App() {
+  const [user,setUser]=useState(null),[department,setDepartment]=useState(''),[page,setPage]=useState('Dashboard')
+  const [error,setError]=useState(''),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false),[lists,setLists]=useState({})
+  const [summary,setSummary]=useState(null),[items,setItems]=useState([]),[total,setTotal]=useState(0),[search,setSearch]=useState(''),[pageNo,setPageNo]=useState(1),[pickerRecords,setPickerRecords]=useState({'network-elements':[],'physical-devices':[]})
+  const [showForm,setShowForm]=useState(false),[editRow,setEditRow]=useState(null),[form,setForm]=useState({}),[detail,setDetail]=useState(null),[auth,setAuth]=useState({username:'',password:''}),[shown,setShown]=useState(false)
+  const [geo,setGeo]=useState([]),[upload,setUpload]=useState(null),[validation,setValidation]=useState(null),[listType,setListType]=useState('measurement_types'),[newValue,setNewValue]=useState('')
+  const [adminUsers,setAdminUsers]=useState([]),[apiKeys,setApiKeys]=useState([]),[newUser,setNewUser]=useState({username:'',display_name:'',password:'',role:'viewer'}),[keyName,setKeyName]=useState(''),[revealedKey,setRevealedKey]=useState('')
+  const resource=resources[page]
+  const accessRole=user?.departments?.find(d=>d.id===department)?.role
+  const canWrite=Boolean(user?.is_system_admin||['editor','department_admin','system_admin'].includes(accessRole))
+  const canAdmin=Boolean(user?.is_system_admin||['department_admin','system_admin'].includes(accessRole))
+  const headers=useMemo(()=>({'Content-Type':'application/json',...(department?{'X-Department-Id':department}:{})}),[department])
+  const request=useCallback(async (path,options={})=>{
+    const res=await fetch(`${API}${path}`,{credentials:'include',...options,headers:{...headers,...(options.headers||{})}})
+    if(!res.ok){let msg=`Request failed (${res.status})`;try{const data=await res.json();msg=data.detail||msg}catch(e){msg=e.message||msg};throw new Error(msg)}
+    return res.status===204?null:res.json()
+  },[headers])
+  const loadUser=useCallback(async()=>{try{const data=await request('/api/auth/me');setUser(data);if(!department&&data.departments?.length)setDepartment(data.departments[0].id)}catch{setUser(null)}},[department,request])
+  useEffect(()=>{ // Synchronize the existing server-side session into React state.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadUser()
+  },[loadUser])
+  const load=useCallback(async()=>{
+    if(!user||!department)return
+    setError('')
+    try{
+      if(page==='Dashboard'){setSummary(await request('/api/dashboard/summary'));return}
+      if(resource){const data=await request(`/api/${resource.path}?page=${pageNo}&page_size=25&search=${encodeURIComponent(search)}`);setItems(data.items);setTotal(data.total);return}
+      if(page==='Controlled Lists')setLists(await request('/api/lists'))
+      if(page==='GIS Map'){const data=await request('/api/gis/geojson');setGeo(data.features||[])}
+      if(page==='Administration'){const [u,k]=await Promise.all([request('/api/users'),request('/api/api-keys')]);setAdminUsers(u);setApiKeys(k)}
+    }catch(e){setError(e.message)}
+  },[user,department,page,resource,pageNo,search,request])
+  useEffect(()=>{ // Refresh the selected page when its query inputs change.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    load()
+  },[load])
+  useEffect(()=>{if(user){request('/api/lists').then(setLists).catch(e=>setError(e.message))}},[user,request])
+  useEffect(()=>{if(user&&department)Promise.all(['network-elements','physical-devices'].map(path=>request(`/api/${path}?page=1&page_size=500`))).then(([nes,devs])=>setPickerRecords({'network-elements':nes.items,'physical-devices':devs.items})).catch(e=>setError(e.message))},[user,department,request])
+  const signIn=async(e)=>{e.preventDefault();setBusy(true);setError('');try{const u=await request('/api/auth/login',{method:'POST',body:JSON.stringify(auth)});setUser(u);if(u.departments?.length)setDepartment(u.departments[0].id)}catch(e){setError(e.message)}finally{setBusy(false)}}
+  const signOut=async()=>{await request('/api/auth/logout',{method:'POST'});setUser(null);setItems([])}
+  const beginCreate=()=>{setEditRow(null);setForm({collection_parameters:{},communication_parameters:{}});setShowForm(true)}
+  const beginEdit=(row)=>{setEditRow(row);setForm({...row});setShowForm(true)}
+  const showDetails=async(row)=>{try{setDetail(await request(`/api/${resource.path}/${row.id}`))}catch(e){setError(e.message)}}
+  const deactivate=async(row)=>{if(!confirm(`Inactivate ${row[resource.id]}?`))return;try{await request(`/api/${resource.path}/${row.id}`,{method:'DELETE'});setNotice('Record inactivated');await load()}catch(e){setError(e.message)}}
+  const save=async(e)=>{e.preventDefault();setBusy(true);setError('');try{const body={...form};for(const key of ['collection_parameters','communication_parameters','geometry'])if(typeof body[key]==='string'&&body[key])body[key]=JSON.parse(body[key]);if(editRow)await request(`/api/${resource.path}/${editRow.id}`,{method:'PATCH',body:JSON.stringify(body)});else await request(`/api/${resource.path}`,{method:'POST',body:JSON.stringify(body)});setShowForm(false);setNotice(editRow?'Record updated':'Record created');await load()}catch(e){setError(e.message)}finally{setBusy(false)}}
+  const validate=async()=>{if(!upload)return;setBusy(true);setValidation(null);try{const fd=new FormData();fd.append('file',upload);const r=await fetch(`${API}/api/import/validate`,{method:'POST',credentials:'include',headers:department?{'X-Department-Id':department}:{},body:fd});const v=await r.json();if(!r.ok)throw new Error(v.detail);setValidation(v)}catch(e){setError(e.message)}finally{setBusy(false)}}
+  const commit=async()=>{setBusy(true);try{const fd=new FormData();fd.append('file',upload);const r=await fetch(`${API}/api/import/commit`,{method:'POST',credentials:'include',headers:department?{'X-Department-Id':department}:{},body:fd});const v=await r.json();if(!r.ok)throw new Error(v.detail);setValidation(v);if(v.imported)setNotice('Workbook imported successfully')}catch(e){setError(e.message)}finally{setBusy(false)}}
+  const downloadTemplate=async()=>{try{const r=await fetch(`${API}/api/import/template`,{credentials:'include',headers:department?{'X-Department-Id':department}:{}});if(!r.ok)throw new Error('Template download failed');const a=document.createElement('a');a.href=URL.createObjectURL(await r.blob());a.download='sensor-metadata-template.xlsx';a.click();URL.revokeObjectURL(a.href)}catch(e){setError(e.message)}}
+  const downloadErrors=()=>{if(!validation?.errors?.length)return;const blob=new Blob([JSON.stringify(validation.errors,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='sensor-metadata-import-errors.json';a.click();URL.revokeObjectURL(a.href)}
+  const exportFile=async()=>{try{const r=await fetch(`${API}/api/export`,{credentials:'include',headers:department?{'X-Department-Id':department}:{}});if(!r.ok)throw new Error('Export failed');const blob=await r.blob();const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='sensor-metadata.xlsx';a.click();URL.revokeObjectURL(a.href)}catch(e){setError(e.message)}}
+  const saveList=async()=>{try{await request(`/api/lists/${listType}`,{method:'POST',body:JSON.stringify({name:newValue})});setNewValue('');setNotice('Shared controlled value added');setLists(await request('/api/lists'))}catch(e){setError(e.message)}}
+  const addUser=async(e)=>{e.preventDefault();try{await request('/api/users',{method:'POST',body:JSON.stringify(newUser)});setNewUser({username:'',display_name:'',password:'',role:'viewer'});setAdminUsers(await request('/api/users'));setNotice('Department user created')}catch(e){setError(e.message)}}
+  const editListValue=async(value)=>{const name=prompt('Edit the shared controlled value',value.name);if(!name?.trim()||name===value.name)return;try{await request(`/api/lists/${listType}/${value.id}`,{method:'PATCH',body:JSON.stringify({name:name.trim()})});setLists(await request('/api/lists'))}catch(e){setError(e.message)}}
+  const deactivateListValue=async(value)=>{if(!confirm(`Inactivate ${value.name} across all departments?`))return;try{await request(`/api/lists/${listType}/${value.id}`,{method:'DELETE'});setLists(await request('/api/lists'))}catch(e){setError(e.message)}}
+  const addKey=async(e)=>{e.preventDefault();try{const result=await request('/api/api-keys',{method:'POST',body:JSON.stringify({name:keyName})});setRevealedKey(result.token);setKeyName('');setApiKeys(await request('/api/api-keys'))}catch(e){setError(e.message)}}
+  const revokeKey=async(id)=>{try{await request(`/api/api-keys/${id}/revoke`,{method:'POST'});setApiKeys(await request('/api/api-keys'));setNotice('API key revoked')}catch(e){setError(e.message)}}
+
+  if(!user)return <main className="login-screen"><section className="login-card"><div className="brand-mark">SM</div><div className="eyebrow">KIOS · METADATA WORKSPACE</div><h1>Welcome back</h1><p>Sign in to manage your department’s sensor metadata.</p>{error&&<div className="alert error">{error}</div>}<form onSubmit={signIn}><label>Username<input autoComplete="username" value={auth.username} onChange={e=>setAuth({...auth,username:e.target.value})} required/></label><label>Password<div className="password-wrap"><input type={shown?'text':'password'} autoComplete="current-password" value={auth.password} onChange={e=>setAuth({...auth,password:e.target.value})} required/><button className="show-password" type="button" onClick={()=>setShown(!shown)}>{shown?'Hide':'Show'}</button></div></label><button className="primary wide" disabled={busy}>{busy?'Signing in…':'Sign in'} <span>→</span></button></form><div className="login-foot">Sensor Metadata Management Platform</div></section></main>
+
+  return <div className="shell"><aside className="sidebar"><div className="brand"><div className="brand-mark">SM</div><div><b>Sensor Metadata</b><small>MANAGEMENT PLATFORM</small></div></div><div className="nav-label">WORKSPACE</div><nav>{areas.map(([label,icon])=><button key={label} className={`nav-item ${page===label?'selected':''}`} onClick={()=>{setPage(label);setError('')}}><span className="nav-icon">{icon}</span>{label}{label==='Measurements'&&<span className="nav-count">{summary?.measurements??''}</span>}</button>)}</nav><div className="side-bottom"><span className="status-dot"/>Metadata services connected<small>v1.0 · KIOS</small></div></aside>
+  <main className="main-area"><header className="topbar"><div className="crumb">Workspace <span>/</span> <b>{page}</b></div><div className="top-actions"><label className="department-select"><span>DEPARTMENT</span><select value={department} onChange={e=>setDepartment(e.target.value)}>{user.departments?.map(d=><option key={d.id} value={d.id}>{d.name} · {d.role.replaceAll('_',' ')}</option>)}</select></label><div className="profile"><div className="avatar">{user.display_name?.slice(0,1).toUpperCase()}</div><div><b>{user.display_name}</b><small>{user.departments?.find(d=>d.id===department)?.role?.replaceAll('_',' ')}</small></div></div><button className="icon-button" title="Sign out" onClick={signOut}>↪</button></div></header>
+    <div className="page-content">{error&&<div className="alert error" role="alert">{error}<button onClick={()=>setError('')}>×</button></div>}{notice&&<div className="alert success" role="status">{notice}<button onClick={()=>setNotice('')}>×</button></div>}
+    {page==='Dashboard'&&<><div className="page-heading"><div><div className="eyebrow">OVERVIEW</div><h1>Good day, {user.display_name?.split(' ')[0]}</h1><p>Metadata records for {user.departments?.find(d=>d.id===department)?.name||'your department'}.</p></div><button className="secondary" onClick={load}>↻ &nbsp; Refresh</button></div><section className="stat-grid">{[['Total measurements',summary?.measurements,'⌁','indigo'],['Physical devices',summary?.devices,'▣','teal'],['Network elements',summary?.network_elements,'⌖','blue'],['Active measurements',summary?.active_measurements,'◉','green'],['Inactive records',summary?.inactive_records,'◌','amber'],['Without location',summary?.records_without_location,'◎','rose']].map(([title,value,icon,color])=><article className="stat-card" key={title}><div className={`stat-icon ${color}`}>{icon}</div><div className="stat-title">{title}</div><strong>{value??'—'}</strong><small>Current department</small></article>)}</section><section className="panel"><div className="panel-head"><div><h2>Quick access</h2><p>Manage operational metadata records</p></div></div><div className="quick-grid">{Object.keys(resources).map(name=><button className="quick-card" key={name} onClick={()=>setPage(name)}><span>{name==='Measurements'?'⌁':name==='Physical Devices'?'▣':'⌖'}</span><b>{name}</b><small>Browse and manage records</small><i>→</i></button>)}</div></section><section className="chart-grid"><Bars title="Measurements by type" items={summary?.measurements_by_type}/><Bars title="Devices by type" items={summary?.devices_by_type}/><Bars title="Measurements by network area" items={summary?.measurements_by_area}/><Bars title="Collection types" items={summary?.collection_type_distribution}/></section><section className="panel activity-panel"><div className="panel-head"><div><h2>Recent activity</h2><p>Metadata changes in this department</p></div></div>{summary?.recent_activity?.length?summary.recent_activity.map((event,i)=><div className="activity-row" key={`${event.entity_id}-${i}`}><span className="activity-pip"/><div><b>{event.actor}</b> {event.action} <strong>{event.entity.replaceAll('-',' ')}</strong><small>{event.entity_id}</small></div><time>{new Date(event.timestamp).toLocaleString()}</time></div>):<p className="muted activity-empty">No recent activity</p>}</section><div className="note-card"><span>ⓘ</span><p>This workspace stores metadata and collection configuration. Live sensor readings and time-series data are not ingested.</p></div></>}
+    {resource&&<><div className="page-heading"><div><div className="eyebrow">METADATA CATALOG</div><h1>{page}</h1><p>Search, review and maintain department records.</p></div>{canWrite&&<button className="primary" onClick={beginCreate}>＋ &nbsp; Add {page==='Measurements'?'measurement':page==='Physical Devices'?'device':'element'}</button>}</div><section className="panel table-panel"><div className="table-toolbar"><div className="search-box"><span>⌕</span><input placeholder={`Search ${page.toLowerCase()}…`} value={search} onChange={e=>{setSearch(e.target.value);setPageNo(1)}}/><kbd>⌘ K</kbd></div><button className="secondary" onClick={load}>↻ &nbsp; Refresh</button></div><div className="table-wrap"><table><thead><tr><th>IDENTIFIER</th><th>NAME</th>{page==='Measurements'?<><th>TYPE</th><th>UNIT</th><th>BATCH</th><th>COLLECTION</th></>:page==='Physical Devices'?<><th>TYPE ID</th><th>LOCATION</th><th>STATUS</th></>:<><th>AREA</th><th>LOCATION</th><th>STATUS</th></>}<th/></tr></thead><tbody>{items.map(row=><tr key={row.id}><td><button className="link-button" onClick={()=>showDetails(row)}>{row[resource.id]}</button></td><td><b>{row[resource.name]}</b></td>{page==='Measurements'?<><td>{row.measurement_type||'—'}</td><td>{row.measurement_unit||'—'}</td><td>{row.measurement_collection_batch??'—'}</td><td><span className="tag">{row.collection_type||'—'}</span></td></>:page==='Physical Devices'?<><td>{row.device_type||'—'}</td><td>{row.latitude==null?'—':`${row.latitude}, ${row.longitude}`}</td><td><span className={`tag ${row.is_active?'green-tag':'gray-tag'}`}>{row.is_active?'Active':'Inactive'}</span></td></>:<><td>{row.network_area||'—'}</td><td>{row.latitude==null?'—':`${row.latitude}, ${row.longitude}`}</td><td><span className={`tag ${row.is_active?'green-tag':'gray-tag'}`}>{row.is_active?'Active':'Inactive'}</span></td></>}<td>{canWrite&&<><button className="row-action" title="Edit" onClick={()=>beginEdit(row)}>Edit</button><button className="row-action" title="Inactivate" onClick={()=>deactivate(row)}>×</button></>}</td></tr>)}</tbody></table>{!items.length&&<div className="empty-state"><div>⌕</div><b>No records found</b><p>Try another search, or add a record to get started.</p></div>}</div><div className="pagination"><span>Showing {items.length?((pageNo-1)*25+1):0}–{Math.min(pageNo*25,total)} of {total} records</span><div><button disabled={pageNo<=1} onClick={()=>setPageNo(pageNo-1)}>← Previous</button><span>Page {pageNo} of {Math.max(1,Math.ceil(total/25))}</span><button disabled={pageNo*25>=total} onClick={()=>setPageNo(pageNo+1)}>Next →</button></div></div></section>{detail&&<div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setDetail(null)}}><section className="detail-modal"><header><div><div className="eyebrow">RECORD DETAILS</div><h2>{detail[resource.id]||detail.measurement_id}</h2></div><div className="detail-actions">{canWrite&&<button className="secondary" onClick={()=>{beginEdit(detail);setDetail(null)}}>Edit record</button>}<button className="icon-button" onClick={()=>setDetail(null)}>×</button></div></header><div className="detail-grid">{(page==='Measurements'?measurementDetailFields.map(key=>[key,detail[key]]):Object.entries(detail).filter(([key])=>!['id','department_id','created_by','updated_by'].includes(key))).map(([label,value])=><div className="detail-cell" key={label}><small>{label}</small><b>{value==null||value===''?'—':typeof value==='object'?JSON.stringify(value):String(value)}</b></div>)}</div></section></div>}{showForm&&<div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setShowForm(false)}}><section className="form-modal"><header><div><div className="eyebrow">{editRow?'EDIT RECORD':'NEW RECORD'}</div><h2>{editRow?'Update':'Create'} {page.slice(0,-1)}</h2></div><button className="icon-button" onClick={()=>setShowForm(false)}>×</button></header><form onSubmit={save}><div className="form-grid">{resource.fields.map(([key,label,type,required])=><label key={key} className={type==='textarea'||type==='json'?'span-2':''}>{label}{required&&<em> *</em>}{listNames[type]?<select required={required} value={form[key]||''} onChange={e=>setForm({...form,[key]:e.target.value})}><option value="">Select…</option>{(lists[type]||[]).map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select>:type==='measurement_types'||type==='measurement_units'||type==='device_types'||type==='network_element_types'?<select value={form[key]||''} onChange={e=>setForm({...form,[key]:e.target.value})}/>:type==='network-elements'||type==='physical-devices'?<select required={required} value={form[key]||''} onChange={e=>setForm({...form,[key]:e.target.value})}><option value="">Select {label.toLowerCase()}…</option>{itemsForPicker(type).map(x=><option value={x.id} key={x.id}>{type==='network-elements'?x.network_element_id:x.device_id} · {type==='network-elements'?x.network_element_name:x.device_name}</option>)}</select>:type==='textarea'?<textarea rows="3" value={form[key]??''} onChange={e=>setForm({...form,[key]:e.target.value})}/>:type==='json'?<textarea rows="4" placeholder='{"DB":"LLDB","Table":"T54","Column":"v1"}' value={typeof form[key]==='string'?form[key]:JSON.stringify(form[key]||{},null,2)} onChange={e=>setForm({...form,[key]:e.target.value})}/>:<input type={type} required={required} value={form[key]??''} onChange={e=>setForm({...form,[key]:type==='number'?(e.target.value===''?null:Number(e.target.value)):e.target.value})}/>}</label>)}</div><footer><button type="button" className="secondary" onClick={()=>setShowForm(false)}>Cancel</button><button className="primary" disabled={busy}>{busy?'Saving…':'Save record'}</button></footer></form></section></div>}</>}
+    {page==='Controlled Lists'&&<><div className="page-heading"><div><div className="eyebrow">PLATFORM VOCABULARY</div><h1>Controlled lists</h1><p>Shared values used across all departments.</p></div></div><div className="note-card warning"><span>ⓘ</span><p>Changes here affect the entire platform. Department administrators can add approved values.</p></div><div className="list-tabs">{Object.keys(listNames).map(k=><button className={listType===k?'active':''} key={k} onClick={()=>setListType(k)}>{listNames[k]}</button>)}</div><section className="panel"><div className="list-add"><div><h2>{listNames[listType]}</h2><p>{(lists[listType]||[]).length} vocabulary entries</p></div><div><input placeholder="Add a new value" value={newValue} onChange={e=>setNewValue(e.target.value)}/>{canAdmin&&<button className="primary" disabled={!newValue.trim()} onClick={saveList}>＋ Add value</button>}</div></div><div className="value-list">{(lists[listType]||[]).map(v=><div className="value-row" key={v.id}><span className="list-bullet"/><b>{v.name}</b><span className={`tag ${v.is_active?'green-tag':'gray-tag'}`}>{v.is_active?'Active':'Inactive'}</span>{canAdmin&&v.is_active&&<><button className="row-action" onClick={()=>editListValue(v)}>Edit</button><button className="row-action" onClick={()=>deactivateListValue(v)}>×</button></>}</div>)}</div></section></>}
+    {page==='Excel Import/Export'&&<><div className="page-heading"><div><div className="eyebrow">BULK DATA TOOLS</div><h1>Excel import & export</h1><p>Validate a workbook before atomic import, or export department records.</p></div><div className="import-actions"><button className="secondary" onClick={downloadTemplate}>↓ &nbsp; Download template</button><button className="secondary" onClick={exportFile}>↓ &nbsp; Export workbook</button></div></div><div className="import-grid"><section className="panel"><div className="panel-head"><div><h2>Import workbook</h2><p>Upload the operational sheets to preview and validate.</p></div><div className="stat-icon indigo">⇧</div></div><label className="dropzone"><input type="file" accept=".xlsx" onChange={e=>{setUpload(e.target.files?.[0]||null);setValidation(null)}}/><div className="upload-icon">⇧</div><b>{upload?upload.name:'Choose an Excel workbook'}</b><span>{upload?'Ready to validate':'Drag and drop, or browse .xlsx files'}</span><small>Measurements · NetworkElements · Physical_devices</small></label><button className="primary" disabled={!upload||busy||!canWrite} onClick={validate}>{busy?'Validating…':'Validate workbook'}</button>{validation&&<div className={`validation-result ${validation.valid||validation.imported?'good':''}`}><b>{validation.imported?'Import complete':validation.valid?'Validation passed':`${validation.errors?.length||0} issue(s) found`}</b>{validation.errors?.slice(0,10).map((x,i)=><p key={i}>{x.sheet} · Row {x.row} · {x.column||''} {x.error}</p>)}{validation.errors?.length>0&&<button className="secondary" onClick={downloadErrors}>Download error report</button>}{validation.valid&&!validation.imported&&<button className="primary" onClick={commit}>Commit atomic import</button>}</div>}</section><section className="panel guide-panel"><div className="panel-head"><div><h2>Workbook guide</h2><p>Use the exact operational worksheet headers.</p></div></div>{[['Measurements','23 columns','IDs, controlled values, linked device and network element.'],['NetworkElements','11 columns','Point coordinates optional; no invented coordinates.'],['Physical_devices','7 columns','JSON communication settings and optional location.']].map(([n,c,d])=><div className="guide-row" key={n}><div className="guide-icon">▤</div><div><b>{n}</b><small>{d}</small></div><span>{c}</span></div>)}<div className="note-card"><span>ⓘ</span><p>Identifiers are imported as text. Duplicate IDs and inconsistent derived values block the entire import.</p></div></section></div></>}
+    {page==='GIS Map'&&<><div className="page-heading"><div><div className="eyebrow">SPATIAL CATALOG</div><h1>GIS map</h1><p>Saved WGS84 locations. Items without geometry are never plotted.</p></div><div className="map-legend"><span><i className="legend-dot teal-dot"/>Physical devices</span><span><i className="legend-dot blue-dot"/>Network elements</span></div></div><section className="panel map-panel"><GeoMap features={geo}/><div className="map-records"><b>Located records</b>{geo.map(f=><div className="map-record" key={f.properties.id}><i className={`legend-dot ${f.properties.kind==='physical_device'?'teal-dot':'blue-dot'}`}/><div><b>{f.properties.external_id}</b><small>{f.properties.name} · {f.properties.kind.replace('_',' ')}</small></div><span>{f.geometry.type}</span></div>)}{!geo.length&&<p className="muted">Records without location are excluded from the map.</p>}</div></section></>}
+    {['Administration','Settings'].includes(page)&&<><div className="page-heading"><div><div className="eyebrow">WORKSPACE</div><h1>{page}</h1><p>Account and access information for the active department.</p></div></div><section className="panel profile-panel"><h2>Signed-in account</h2><dl><dt>Name</dt><dd>{user.display_name}</dd><dt>Username</dt><dd>{user.username}</dd><dt>Access role</dt><dd>{user.departments?.find(d=>d.id===department)?.role?.replaceAll('_',' ')}</dd><dt>Active department</dt><dd>{user.departments?.find(d=>d.id===department)?.name}</dd></dl><button className="secondary" onClick={signOut}>Sign out</button></section>{page==='Administration'&&user.departments?.find(d=>d.id===department)?.role==='department_admin'||page==='Administration'&&user.is_system_admin?<><section className="panel admin-panel"><div className="panel-head"><div><h2>Department users</h2><p>Manage membership and per-department role access.</p></div></div><form className="admin-form" onSubmit={addUser}><input placeholder="Username" value={newUser.username} onChange={e=>setNewUser({...newUser,username:e.target.value})} required/><input placeholder="Display name" value={newUser.display_name} onChange={e=>setNewUser({...newUser,display_name:e.target.value})}/><input type="password" placeholder="Temporary password (12+ chars)" value={newUser.password} onChange={e=>setNewUser({...newUser,password:e.target.value})} minLength={12} required/><select value={newUser.role} onChange={e=>setNewUser({...newUser,role:e.target.value})}><option value="viewer">Viewer</option><option value="editor">Editor</option><option value="department_admin">Department Administrator</option></select><button className="primary">＋ Add user</button></form><div className="admin-list">{adminUsers.map(x=><div key={x.id}><b>{x.display_name}</b><span>{x.username}</span><em>{x.role.replaceAll('_',' ')}</em></div>)}</div></section><section className="panel admin-panel"><div className="panel-head"><div><h2>Read-only API keys</h2><p>Keys are scoped to this department and can only read metadata.</p></div></div><form className="admin-form key-form" onSubmit={addKey}><input placeholder="Integration name" value={keyName} onChange={e=>setKeyName(e.target.value)} required/><button className="primary">＋ Create key</button></form>{revealedKey&&<div className="key-reveal"><b>Copy this key now. It will not be shown again.</b><code>{revealedKey}</code><button className="secondary" onClick={()=>{navigator.clipboard?.writeText(revealedKey);setNotice('Key copied to clipboard')}}>Copy key</button></div>}<div className="admin-list">{apiKeys.map(x=><div key={x.id}><b>{x.name}</b><span>{x.expires_at?`Expires ${new Date(x.expires_at).toLocaleDateString()}`:'No expiry'}</span><em>{x.revoked?'Revoked':'Active'}</em>{!x.revoked&&<button className="row-action" onClick={()=>revokeKey(x.id)}>Revoke</button>}</div>)}</div></section></>:<section className="note-card"><span>ⓘ</span><p>Department user and API key management requires a Department Administrator or System Administrator role.</p></section>}</>}
+    </div><footer className="app-footer"><span>Sensor Metadata Management Platform</span><span>Metadata only · KIOS Research and Innovation Center of Excellence</span></footer></main></div>
+  function itemsForPicker(path){return pickerRecords[path]||[]}
+}
 export default App

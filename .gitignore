@@ -1,5 +1,7 @@
 # Python virtual environment
 backend/venv/
+*.db
+frontend/dist/
 
 # Python generated files
 __pycache__/

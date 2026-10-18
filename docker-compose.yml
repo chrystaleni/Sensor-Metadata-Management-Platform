@@ -1,0 +1,34 @@
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_DB: sensor_metadata
+      POSTGRES_USER: sensor
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sensor_local_only}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sensor -d sensor_metadata"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+  api:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://sensor:${POSTGRES_PASSWORD:-sensor_local_only}@db:5432/sensor_metadata
+      SESSION_SECRET: ${SESSION_SECRET:-replace-this-with-a-long-random-secret}
+      HTTPS_ONLY: ${HTTPS_ONLY:-false}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+      ALLOW_SETUP: ${ALLOW_SETUP:-true}
+    ports: ["8000:8000"]
+    depends_on:
+      db: {condition: service_healthy}
+    restart: unless-stopped
+  frontend:
+    build: ./frontend
+    ports: ["5173:80"]
+    depends_on: [api]
+    restart: unless-stopped
+volumes:
+  postgres_data:
